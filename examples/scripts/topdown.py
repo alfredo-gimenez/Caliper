@@ -25,6 +25,46 @@ METRICS = [
     'uncore_bound',
 ]
 
+IVB_SLOTS = 4
+IVB_L1LAT = 7
+IVB_ARCH = {
+    'clocks'                : 'libpfm.counter.CPU_CLK_UNHALTED.THREAD_P',
+    'retire_slots'          : 'libpfm.counter.UOPS_RETIRED.RETIRE_SLOTS',
+    'recovery_cycles'       : 'libpfm.counter.INT_MISC.RECOVERY_CYCLES',
+    'uops_any'              : 'libpfm.counter.UOPS_ISSUED.ANY',
+    'uops_not_delivered'    : 'libpfm.counter.IDQ_UOPS_NOT_DELIVERED.CORE',
+    'branches'              : 'libpfm.counter.BR_MISP_RETIRED.ALL_BRANCHES',
+    'machine_clears'        : 'libpfm.counter.MACHINE_CLEARS.COUNT',
+    'idle_cycles'           : 'libpfm.counter.CYCLE_ACTIVITY.CYCLES_NO_EXECUTE',
+    'thread_c1'             : 'libpfm.counter.UOPS_EXECUTED.THREAD:c=1',
+    'thread_c2'             : 'libpfm.counter.UOPS_EXECUTED.THREAD:c=2',
+    'l3_hit'                : 'libpfm.counter.MEM_LOAD_UOPS_RETIRED.L3_HIT',
+    'l3_miss'               : 'libpfm.counter.MEM_LOAD_UOPS_RETIRED.L3_MISS',
+    'mem_stalls'            : 'libpfm.counter.CYCLE_ACTIVITY.STALLS_LDM_PENDING',
+    'l1_stalls'             : 'libpfm.counter.CYCLE_ACTIVITY.STALLS_L1D_PENDING',
+    'l2_stalls'             : 'libpfm.counter.CYCLE_ACTIVITY.STALLS_L2_PENDING',
+}
+
+BDW_SLOTS = 4
+BDW_L1LAT = 7
+BDW_ARCH = {
+    'clocks'                : 'libpfm.counter.CPU_CLK_THREAD_UNHALTED',
+    'retire_slots'          : 'libpfm.counter.UOPS_RETIRED.RETIRE_SLOTS',
+    'recovery_cycles'       : 'libpfm.counter.INT_MISC.RECOVERY_CYCLES',
+    'uops_any'              : 'libpfm.counter.UOPS_ISSUED.ANY',
+    'uops_not_delivered'    : 'libpfm.counter.IDQ_UOPS_NOT_DELIVERED.CORE',
+    'branches'              : 'libpfm.counter.BR_MISP_RETIRED:ALL_BRANCHES',
+    'machine_clears'        : 'libpfm.counter.MACHINE_CLEARS.COUNT',
+    'idle_cycles'           : 'libpfm.counter.CYCLE_ACTIVITY.CYCLES_NO_EXECUTE',
+    'thread_c1'             : 'libpfm.counter.UOPS_EXECUTED.THREAD:c=1',
+    'thread_c2'             : 'libpfm.counter.UOPS_EXECUTED.THREAD:c=2',
+    'l3_hit'                : 'libpfm.counter.MEM_LOAD_UOPS_RETIRED.L3_HIT',
+    'l3_miss'               : 'libpfm.counter.MEM_LOAD_UOPS_RETIRED.L3_MISS',
+    'mem_stalls'            : 'libpfm.counter.CYCLE_ACTIVITY.STALLS_LDM_PENDING',
+    'l1_stalls'             : 'libpfm.counter.CYCLE_ACTIVITY.STALLS_L1D_PENDING',
+    'l2_stalls'             : 'libpfm.counter.CYCLE_ACTIVITY.STALLS_L2_PENDING',
+}
+
 
 def eprint(*args, **kwargs):
     """ Print to stderr """
@@ -32,22 +72,33 @@ def eprint(*args, **kwargs):
     print(*args, file=sys.stderr, **kwargs)
 
 
-def derive_topdown_ivb(dfm):
+def derive_topdown(dfm, arch_name):
     """ Perform topdown metric calculations for ivybridge architecture """
 
-    dfm['TEMPORARY_clocks'] = dfm['libpfm.counter.CPU_CLK_UNHALTED.THREAD_P']
-    dfm['TEMPORARY_slots'] = 4*dfm['TEMPORARY_clocks']
+    if arch_name == 'ivybridge':
+        arch = IVB_ARCH
+        slots = IVB_SLOTS
+        l1lat = IVB_L1LAT
+    elif arch_name == 'broadwell':
+        arch = BDW_ARCH
+        slots = BDW_SLOTS
+        l1lat = BDW_L1LAT
+    else:
+        eprint("Error, unsupported architecture " + arch_name)
+        sys.exit(1)
+
+    dfm['TEMPORARY_slots'] = slots*dfm[arch['clocks']]
 
     # Level 1 - Not Stalled
-    dfm['retiring'] = (dfm['libpfm.counter.UOPS_RETIRED.RETIRE_SLOTS']
+    dfm['retiring'] = (dfm[arch['retire_slots']]
                        / dfm['TEMPORARY_slots'])
-    dfm['bad_speculation'] = ((dfm['libpfm.counter.UOPS_ISSUED.ANY']
-                               - dfm['libpfm.counter.UOPS_RETIRED.RETIRE_SLOTS']
-                               + 4*dfm['libpfm.counter.INT_MISC.RECOVERY_CYCLES'])
+    dfm['bad_speculation'] = ((dfm[arch['uops_any']]
+                               - dfm[arch['retire_slots']]
+                               + slots*dfm[arch['recovery_cycles']])
                               / dfm['TEMPORARY_slots'])
 
     # Level 1 - Stalled
-    dfm['frontend_bound'] = (dfm['libpfm.counter.IDQ_UOPS_NOT_DELIVERED.CORE']
+    dfm['frontend_bound'] = (dfm[arch['uops_not_delivered']]
                              / dfm['TEMPORARY_slots'])
     dfm['backend_bound'] = (1 - (dfm['frontend_bound']
                                  + dfm['bad_speculation']
@@ -57,65 +108,53 @@ def derive_topdown_ivb(dfm):
     # TODO: implement if possible
 
     # Level 2 - Bad speculation
-    dfm['branch_mispredict'] = (dfm['libpfm.counter.BR_MISP_RETIRED.ALL_BRANCHES']
-                                / (dfm['libpfm.counter.BR_MISP_RETIRED.ALL_BRANCHES']
-                                   + dfm['libpfm.counter.MACHINE_CLEARS.COUNT']))
+    dfm['branch_mispredict'] = (dfm[arch['branches']]
+                                / (dfm[arch['branches']]
+                                   + dfm[arch['machine_clears']]))
     dfm['machine_clear'] = (1 - dfm['branch_mispredict'])  # FIXME: is this correct?
 
     # Level 2 - Frontend Bound
-    dfm['frontend_latency'] = (dfm['libpfm.counter.IDQ_UOPS_NOT_DELIVERED.CORE'].clip(lower=4)
-                                     / dfm['TEMPORARY_clocks'])
+    dfm['frontend_latency'] = (dfm[arch['uops_not_delivered']].clip(lower=slots)
+                               / dfm[arch['clocks']])
     dfm['frontend_bandwidth'] = (1 - dfm['frontend_latency'])  # FIXME: is this correct?
 
     # Level 2 - Backend Bound
-    dfm['memory_bound'] = (dfm['libpfm.counter.CYCLE_ACTIVITY.STALLS_LDM_PENDING']
-                           / dfm['TEMPORARY_clocks'])
-    dfm['TEMPORARY_be_bound_at_exe'] = ((dfm['libpfm.counter.CYCLE_ACTIVITY.CYCLES_NO_EXECUTE']
-                                         + dfm['libpfm.counter.UOPS_EXECUTED.CORE_CYCLES_GE_1']
-                                         - dfm['libpfm.counter.UOPS_EXECUTED.CORE_CYCLES_GE_2'])
-                                        / dfm['TEMPORARY_clocks'])
+    dfm['memory_bound'] = (dfm[arch['mem_stalls']]
+                           / dfm[arch['clocks']])
+    dfm['TEMPORARY_be_bound_at_exe'] = ((dfm[arch['idle_cycles']]
+                                         + dfm[arch['thread_c1']]
+                                         - dfm[arch['thread_c2']])
+                                        / dfm[arch['clocks']])
     dfm['core_bound'] = (dfm['TEMPORARY_be_bound_at_exe']
                          - dfm['memory_bound'])
 
     # Level 3 - Memory bound
-    dfm['TEMPORARY_l3_hit_fraction'] = (dfm['libpfm.counter.MEM_LOAD_UOPS_RETIRED.L3_HIT'] /
-                                        (dfm['libpfm.counter.MEM_LOAD_UOPS_RETIRED.L3_HIT']
-                                         + 7*dfm['libpfm.counter.MEM_LOAD_UOPS_RETIRED.L3_MISS']))
-    dfm['TEMPORARY_l3_miss_fraction'] = (7*dfm['libpfm.counter.MEM_LOAD_UOPS_RETIRED.L3_MISS']
-                                         / (dfm['libpfm.counter.MEM_LOAD_UOPS_RETIRED.L3_HIT']
-                                            + 7*dfm['libpfm.counter.MEM_LOAD_UOPS_RETIRED.L3_MISS']))
-    dfm['mem_bound'] = (dfm['libpfm.counter.CYCLE_ACTIVITY.STALLS_L2_PENDING']
+    dfm['TEMPORARY_l3_hit_fraction'] = (dfm[arch['l3_hit']] /
+                                        (dfm[arch['l3_hit']]
+                                         + l1lat*dfm[arch['l3_miss']]))
+    dfm['TEMPORARY_l3_miss_fraction'] = (l1lat*dfm[arch['l3_miss']]
+                                         / (dfm[arch['l3_hit']]
+                                            + l1lat*dfm[arch['l3_miss']]))
+    dfm['mem_bound'] = (dfm[arch['l2_stalls']]
                         * dfm['TEMPORARY_l3_miss_fraction']
-                        / dfm['TEMPORARY_clocks'])
-    dfm['l1_bound'] = ((dfm['libpfm.counter.CYCLE_ACTIVITY.STALLS_LDM_PENDING']
-                        - dfm['libpfm.counter.CYCLE_ACTIVITY.STALLS_L1D_PENDING'])
-                       / dfm['TEMPORARY_clocks'])
-    dfm['l2_bound'] = ((dfm['libpfm.counter.CYCLE_ACTIVITY.STALLS_L1D_PENDING']
-                        - dfm['libpfm.counter.CYCLE_ACTIVITY.STALLS_L2_PENDING'])
-                       / dfm['TEMPORARY_clocks'])
-    dfm['l3_bound'] = (dfm['libpfm.counter.CYCLE_ACTIVITY.STALLS_L2_PENDING']
+                        / dfm[arch['clocks']])
+    dfm['l1_bound'] = ((dfm[arch['mem_stalls']]
+                        - dfm[arch['l1_stalls']])
+                       / dfm[arch['clocks']])
+    dfm['l2_bound'] = ((dfm[arch['l1_stalls']]
+                        - dfm[arch['l2_stalls']])
+                       / dfm[arch['clocks']])
+    dfm['l3_bound'] = (dfm[arch['l2_stalls']]
                        * dfm['TEMPORARY_l3_hit_fraction']
-                       / dfm['TEMPORARY_clocks'])
-    dfm['uncore_bound'] = (dfm['libpfm.counter.CYCLE_ACTIVITY.STALLS_L2_PENDING']
-                           / dfm['TEMPORARY_clocks'])
+                       / dfm[arch['clocks']])
+    dfm['uncore_bound'] = (dfm[arch['l2_stalls']]
+                           / dfm[arch['clocks']])
 
     for column in dfm.columns:
         if 'TEMPORARY' in column:
             del dfm[column]
         elif 'libpfm.counter' in column:
             del dfm[column]
-
-    return dfm
-
-
-def derive_topdown(dfm, arch):
-    """ Determine topdown function to use, use it, then clean up the dataframe """
-
-    if arch == 'ivybridge':
-        dfm = derive_topdown_ivb(dfm)
-    else:
-        eprint("Error, unsupported architecture " + arch)
-        return dfm
 
     return dfm
 

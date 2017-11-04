@@ -48,8 +48,29 @@ then
                    "RESOURCE_STALLS.SB"
                    "RS_EVENTS.EMPTY_CYCLES"
                    "UOPS_EXECUTED.THREAD"
-                   "UOPS_EXECUTED.CORE_CYCLES_GE_1"
-                   "UOPS_EXECUTED.CORE_CYCLES_GE_2"
+                   "UOPS_EXECUTED.THREAD:c=1"
+                   "UOPS_EXECUTED.THREAD:c=2"
+                   "UOPS_ISSUED.ANY"
+                   "UOPS_RETIRED.RETIRE_SLOTS")
+elif [ "${ARCH_FAMILY}" == "broadwell" ]
+then
+    LIBPFM_EVENTS=("BR_MISP_RETIRED:ALL_BRANCHES"
+                   "CPU_CLK_THREAD_UNHALTED"
+                   "CYCLE_ACTIVITY.CYCLES_NO_EXECUTE"
+                   "CYCLE_ACTIVITY.STALLS_L1D_PENDING"
+                   "CYCLE_ACTIVITY.STALLS_L2_PENDING"
+                   "CYCLE_ACTIVITY.STALLS_LDM_PENDING"
+                   "IDQ.MS_UOPS"
+                   "IDQ_UOPS_NOT_DELIVERED.CORE"
+                   "INT_MISC.RECOVERY_CYCLES"
+                   "MACHINE_CLEARS.COUNT"
+                   "MEM_LOAD_UOPS_RETIRED.L3_HIT"
+                   "MEM_LOAD_UOPS_RETIRED.L3_MISS"
+                   "RESOURCE_STALLS.SB"
+                   "RS_EVENTS.EMPTY_CYCLES"
+                   "UOPS_EXECUTED.THREAD"
+                   "UOPS_EXECUTED.THREAD:c=1"
+                   "UOPS_EXECUTED.THREAD:c=2"
                    "UOPS_ISSUED.ANY"
                    "UOPS_RETIRED.RETIRE_SLOTS")
 else
@@ -70,7 +91,9 @@ function join_by {
 
 export CALI_LIBPFM_EVENTS=$(join_by "," ${LIBPFM_EVENTS[@]})
 
-SELECT_CLAUSE="*,sum(libpfm.counter."$(join_by "),sum(libpfm.counter." ${LIBPFM_EVENTS[@]})")"
+echo $CALI_LIBPFM_EVENTS
+
+SELECT_CLAUSE="*,sum(\"libpfm.counter."$(join_by "\"),sum(\"libpfm.counter." ${LIBPFM_EVENTS[@]})"\")"
 
 export CALI_REPORT_CONFIG="SELECT ${SELECT_CLAUSE} GROUP BY ${TOPDOWN_GROUPBY} FORMAT json(quote-all)"
 
