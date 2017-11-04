@@ -435,6 +435,7 @@ namespace {
         enable_sampling = config.get("enable_sampling").to_bool();
         record_counters = config.get("record_counters").to_bool();
 
+        events_string = config.get("events").to_string();
         event_list = config.get("events").to_stringlist();
         size_t events_listed = event_list.size();
 
